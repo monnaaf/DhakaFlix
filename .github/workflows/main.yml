@@ -155,10 +155,11 @@ jobs:
           :root{--bg:#0c0b11;--card:#1a1826;--acc:#7b5bf5;--mu:#9a98a8}
           *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
           html,body{margin:0;background:var(--bg);color:#f2f2f7;font-family:-apple-system,Roboto,Helvetica,sans-serif}
-          #nav{position:sticky;top:0;z-index:5;display:flex;gap:4px;align-items:center;padding:10px 12px;background:rgba(12,11,17,.94);overflow-x:auto}
+          #nav{position:sticky;top:0;z-index:5;padding:10px 12px;background:rgba(12,11,17,.94)}
+          #tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}#tabs::-webkit-scrollbar{display:none}
           .tab{padding:8px 14px;border-radius:20px;color:var(--mu);cursor:pointer;white-space:nowrap}
           .tab.on,.tab:focus{background:var(--acc);color:#fff;outline:none}
-          #q{flex:1;min-width:110px;max-width:300px;margin-left:auto;background:var(--card);border:0;border-radius:20px;color:#fff;padding:9px 14px;font-size:15px}
+          #q{display:block;width:100%;margin-top:8px;background:var(--card);border:0;border-radius:20px;color:#fff;padding:9px 14px;font-size:15px}
           .hero{height:44vh;min-height:230px;background-size:cover;background-position:center top;position:relative;display:flex;align-items:flex-end}
           .hero:after,.det:before{content:"";position:absolute;inset:0;background:linear-gradient(0deg,#0c0b11 6%,rgba(12,11,17,.55))}
           .hero .in{position:relative;z-index:1;padding:18px;max-width:620px}
@@ -198,13 +199,7 @@ jobs:
           #modal[hidden]{display:none}
           #modal .box{background:#1a1826;border-radius:16px;padding:16px;width:min(92%,420px);max-height:80vh;overflow:auto}
           </style></head><body>
-          <div id="nav">
-          <span class="tab" tabindex="0" data-a="tab" data-v="home">Home</span>
-          <span class="tab" tabindex="0" data-a="tab" data-v="movie">Movies</span>
-          <span class="tab" tabindex="0" data-a="tab" data-v="series">Series</span>
-          <span class="tab" tabindex="0" data-a="tab" data-v="settings">&#9881;</span>
-          <input id="q" placeholder="Search">
-          </div>
+          <div id="nav"><div id="tabs"></div><input id="q" placeholder="Search"></div>
           <div id="c"></div><div id="st"></div><div id="modal" hidden></div>
           <script>
           //PURE
@@ -241,16 +236,35 @@ jobs:
             if(t.length<2){const fo=segs[segs.length-1]||'';t=cleanTitle(fo);y=yearOf(fo)}
             return{type:'movie',title:t,year:y,q,url:f.url,name};
           }
-          function build(files){
-            const map=new Map();
+          function folderTitle(url){
+            let segs;try{segs=decodeURIComponent(new URL(url).pathname).split('/').filter(Boolean)}catch(e){segs=new URL(url).pathname.split('/').filter(Boolean)}
+            segs.pop();return cleanTitle(segs[segs.length-1]||'');
+          }
+          function build(files,catS){
+            catS=catS||{};const map=new Map(),fb=new Map();
+            const get=(type,title,year,cid)=>{
+              const k=type+'|'+title.toLowerCase()+(type=='movie'?'|'+(year||''):'');
+              let it=map.get(k);
+              if(!it){it={key:k,type,title,year,files:[],eps:{},cats:[]};map.set(k,it)}
+              if(!it.cats.includes(cid))it.cats.push(cid);
+              return it;
+            };
             files.forEach(f=>{
               const p=parse(f);if(!p.title)return;
-              const k=p.type+'|'+p.title.toLowerCase()+(p.type=='movie'?'|'+(p.year||''):'');
-              let it=map.get(k);
-              if(!it){it={key:k,type:p.type,title:p.title,year:p.year,files:[],eps:{}};map.set(k,it)}
               const fl={url:p.url,q:p.q,name:p.name};
+              if(p.type=='movie'&&catS[f.cat]){
+                const t=folderTitle(f.url)||p.title,k=f.cat+'|'+t.toLowerCase();
+                let g=fb.get(k);if(!g){g={title:t,cat:f.cat,list:[]};fb.set(k,g)}
+                g.list.push(fl);return;
+              }
+              const it=get(p.type,p.title,p.year,f.cat);
               if(p.type=='movie')it.files.push(fl);
               else{const ek=p.season+'x'+p.ep;(it.eps[ek]=it.eps[ek]||[]).push(fl)}
+            });
+            fb.forEach(g=>{
+              g.list.sort((x,y)=>x.name.localeCompare(y.name,undefined,{numeric:true}));
+              const it=get('series',g.title,null,g.cat);
+              g.list.forEach((x,i)=>{it.eps['1x'+(i+1)]=[x]});
             });
             return [...map.values()].sort((a,b)=>a.title.localeCompare(b.title));
           }
@@ -260,8 +274,17 @@ jobs:
           const dec=u=>{try{return decodeURI(u)}catch(e){return u}};
           const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}};
           const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
-          let cfg=ld('cfg',{root:'http://172.16.50.7/',libs:[]});
-          let items=ld('items',[]),M=ld('meta',{}),FULL={},FULLP={},H=[{v:'home'}],seed=Math.random(),pend=[],ptitle='',scanning=false,season=0,enriching=false;
+          const CATS=[
+          {id:'bn',name:'Bangla Movies',short:'Bangla',bn:'বাংলা মুভি'},
+          {id:'in',name:'Indian Movies',short:'Indian',bn:'ইন্ডিয়ান মুভি'},
+          {id:'en',name:'English Movies',short:'English',bn:'ইংলিশ মুভি'},
+          {id:'tv',name:'TV Series',short:'TV Series',bn:'টিভি সিরিজ',s:1},
+          {id:'mini',name:'Mini TV Series',short:'Mini Series',bn:'মিনি টিভি সিরিজ',s:1},
+          {id:'doc',name:'Documentaries',short:'Docs',bn:'ডকুমেন্টারি'}];
+          const catS={};CATS.forEach(c=>{if(c.s)catS[c.id]=1});
+          let cfg=ld('cfg',{});cfg.cats=cfg.cats||{};
+          const hostOf=u=>{try{return new URL(u).host}catch(e){return ''}};
+          let items=ld('items',[]).filter(i=>i.cats),M=ld('meta',{}),FULL={},FULLP={},H=[{v:'home'}],seed=Math.random(),pend=[],ptitle='',scanning=false,season=0,enriching=false;
           const reidx=()=>items.forEach((x,i)=>x.ix=i);reidx();
           let tt;function st(t,ms){const e=$('#st');e.textContent=t;e.style.display=t?'block':'none';clearTimeout(tt);if(ms)tt=setTimeout(()=>e.style.display='none',ms)}
 
@@ -278,22 +301,24 @@ jobs:
             });
             return out;
           }
+          const hasCats=()=>CATS.some(c=>cfg.cats[c.id]);
           async function rescan(){
             if(scanning)return;
-            if(!cfg.libs.length){show('settings',null,true);return}
-            scanning=true;const files=[];const q=cfg.libs.map(u=>[u,4]);let act=0,dirs=0;
+            const q=CATS.filter(c=>cfg.cats[c.id]).map(c=>[cfg.cats[c.id],4,c.id]);
+            if(!q.length){st('Add server addresses first',3000);show('settings',null,true);return}
+            scanning=true;const files=[];let act=0,dirs=0;
             await new Promise(res=>{
               const pump=()=>{
-                while(act<6&&q.length&&files.length<8000){
-                  const [u,d]=q.shift();act++;dirs++;
-                  list(u).then(es=>es.forEach(e=>{if(e.dir){if(d>0)q.push([e.url,d-1])}else if(VEXT.test(e.name))files.push(e)}))
+                while(act<6&&q.length&&files.length<12000){
+                  const [u,d,c]=q.shift();act++;dirs++;
+                  list(u).then(es=>es.forEach(e=>{if(e.dir){if(d>0)q.push([e.url,d-1,c])}else if(VEXT.test(e.name)){e.cat=c;files.push(e)}}))
                   .catch(()=>{}).finally(()=>{act--;st('Scanning... '+files.length+' files, '+dirs+' folders');pump()});
                 }
-                if(!act&&(!q.length||files.length>=8000))res();
+                if(!act&&(!q.length||files.length>=12000))res();
               };pump();
             });
-            items=build(files);reidx();sv('items',items);scanning=false;
-            st(items.length?'Found '+items.length+' titles':'No videos found. Check folders in Settings.',4000);
+            items=build(files,catS);reidx();sv('items',items);scanning=false;
+            st(items.length?'Found '+items.length+' titles':'No videos found. Check the addresses in Settings.',4000);
             render();enrich();
           }
 
@@ -326,13 +351,12 @@ jobs:
           const strip=(t,arr,type)=>arr.length?'<div class="row"><h2>'+t+'<span data-a="more" data-v="'+type+'">See all &rsaquo;</span></h2><div class="strip">'+arr.slice(0,24).map(card).join('')+'</div></div>':'';
 
           function vHome(){
-            if(!items.length)return '<div class="pad"><h2>Welcome</h2><p class="ds">Choose the folders on your server that contain movies and series.</p><button class="btn" data-a="browse" data-v="'+esc(cfg.root)+'">Choose folders</button><button class="btn g" data-a="addroot">Scan whole server</button></div>';
-            const mv=items.filter(i=>i.type=='movie'),sr=items.filter(i=>i.type=='series');
+            if(!items.length)return '<div class="pad"><h2>Welcome</h2><p class="ds">Add the server address for each category in Settings, then tap Save &amp; Scan.</p><button class="btn" data-a="tab" data-v="settings">Open Settings</button></div>';
             const wb=items.filter(i=>M[i.key]&&M[i.key].bg);const h=wb.length?wb[Math.floor(seed*wb.length)]:null;let o='';
-            if(h){const m=M[h.key];o+='<div class="hero" style="background-image:url(\''+esc(m.bg)+'\')"><div class="in"><h1 class="t">'+esc(m.name||h.title)+'</h1><div class="mu">'+esc([m.year,(m.genres||[]).slice(0,3).join(' • ')].filter(Boolean).join('  ·  '))+'</div><div class="ds">'+esc((m.desc||'').slice(0,170))+'</div><button class="btn" data-a="open" data-v="'+h.ix+'">Details</button></div></div>'}
-            return o+strip('Movies',mv,'movie')+strip('Series',sr,'series');
+            if(h){const m=M[h.key];o+='<div class="hero" style="background-image:url(\''+esc(m.bg)+'\')"><div class="in"><h1 class="t">'+esc(m.name||h.title)+'</h1><div class="mu">'+esc([m.year,(m.genres||[]).slice(0,3).join(' \u2022 ')].filter(Boolean).join('  \u00b7  '))+'</div><div class="ds">'+esc((m.desc||'').slice(0,170))+'</div><button class="btn" data-a="open" data-v="'+h.ix+'">Details</button></div></div>'}
+            return o+CATS.map(c=>strip(c.name,items.filter(i=>i.cats.includes(c.id)),c.id)).join('');
           }
-          function vList(type){const a=items.filter(i=>i.type==type);return '<div class="grid">'+a.slice(0,300).map(card).join('')+'</div>'+(a.length>300?'<div class="mu pad">Showing 300 of '+a.length+'. Use search.</div>':'')}
+          function vList(cid){const a=items.filter(i=>i.cats.includes(cid));return '<div class="grid">'+a.slice(0,300).map(card).join('')+'</div>'+(a.length>300?'<div class="mu pad">Showing 300 of '+a.length+'. Use search.</div>':'')+(a.length?'':'<div class="mu pad">Nothing here yet. Check this category\'s address in Settings.</div>')}
           function vSearch(q){const s=q.toLowerCase();const a=items.filter(i=>i.title.toLowerCase().includes(s)||((M[i.key]||{}).name||'').toLowerCase().includes(s));return a.length?'<div class="grid">'+a.slice(0,200).map(card).join('')+'</div>':'<div class="pad mu">Nothing found.</div>'}
 
           function vDetail(ix){
@@ -363,16 +387,16 @@ jobs:
           }
 
           function vSettings(){
-            return '<div class="pad"><h2>Settings</h2><div class="mu">Server address</div><input id="root" class="in2" value="'+esc(cfg.root)+'"><br><button class="btn" data-a="saveroot">Save</button><h3>Library folders</h3>'+
-            (cfg.libs.map((u,i)=>'<div class="lib"><span>'+esc(dec(u))+'</span><button class="btn g" data-a="rmlib" data-v="'+i+'">Remove</button></div>').join('')||'<div class="mu">None added yet.</div>')+
-            '<button class="btn" data-a="browse" data-v="'+esc(cfg.root)+'">+ Add folder</button><button class="btn g" data-a="addroot">Add whole server</button><h3>Library</h3><div class="mu">'+items.length+' titles</div><button class="btn" data-a="rescan">&#8635; Rescan</button><button class="btn g" data-a="clear">Clear cache</button></div>';
+            return '<div class="pad"><h2>Server addresses</h2><div class="mu">Each category has its own address. It can be a different server or a folder on the same server.</div>'+
+            CATS.map(c=>'<h3>'+c.name+' <span class="mu">'+c.bn+'</span></h3><input id="u_'+c.id+'" class="in2" placeholder="http://172.16.50.7/..." value="'+esc(cfg.cats[c.id]||'')+'"><br><button class="btn g" data-a="browsecat" data-v="'+c.id+'">Browse folders</button>').join('')+
+            '<h3>Library</h3><div class="mu">'+items.length+' titles</div><button class="btn" data-a="savescan">Save &amp; Scan</button><button class="btn g" data-a="save">Save</button><button class="btn g" data-a="clear">Clear cache</button></div>';
           }
           function vBrowse(url){
             list(url).then(es=>{
               const s=H[H.length-1];if(s.v!='browse'||s.a!=url)return;
               const ds=es.filter(e=>e.dir),nf=es.filter(e=>VEXT.test(e.name)).length;
-              let up='';try{const p=new URL('../',url).href;if(p.startsWith(cfg.root)&&p!=url)up='<div class="fold" tabindex="0" data-a="browse" data-v="'+esc(p)+'">&#11014; Up</div>'}catch(e){}
-              $('#c').innerHTML='<div class="pad"><div class="mu">'+esc(dec(url))+'</div><button class="btn" data-a="addlib" data-v="'+esc(url)+'">Add this folder</button><div class="mu">'+nf+' videos here, '+ds.length+' subfolders</div>'+up+ds.map(d=>'<div class="fold" tabindex="0" data-a="browse" data-v="'+esc(d.url)+'">&#128193; '+esc(d.name)+'</div>').join('')+(es.length?'':'<div class="mu">Could not read this page. Is the server a normal folder listing?</div>')+'</div>';
+              let up='';try{const p=new URL('../',url).href;if(p!=url)up='<div class="fold" tabindex="0" data-a="browse" data-v="'+esc(p)+'">&#11014; Up</div>'}catch(e){}
+              $('#c').innerHTML='<div class="pad"><div class="mu">'+esc(dec(url))+'</div><button class="btn" data-a="usecat" data-v="'+esc(url)+'">Use this folder</button><div class="mu">'+nf+' videos here, '+ds.length+' subfolders</div>'+up+ds.map(d=>'<div class="fold" tabindex="0" data-a="browse" data-v="'+esc(d.url)+'">&#128193; '+esc(d.name)+'</div>').join('')+(es.length?'':'<div class="mu">Could not read this page. Is the server a normal folder listing?</div>')+'</div>';
             }).catch(()=>{$('#c').innerHTML='<div class="pad">Cannot reach the server. Make sure you are on the right Wi-Fi.<br><button class="btn" data-a="tab" data-v="settings">Settings</button></div>'});
             return '<div class="pad mu">Loading...</div>';
           }
@@ -397,11 +421,18 @@ jobs:
             if(!files||!files.length)return;
             if(files.length==1)return go(files[0].url,title);
             pend=files;ptitle=title;
-            $('#modal').innerHTML='<div class="box"><b>'+esc(title)+'</b>'+files.map((f,i)=>'<div class="fold" tabindex="0" data-a="p" data-v="'+i+'"><b>'+esc(f.q)+'</b><div class="mu">'+esc(f.name)+'</div></div>').join('')+'<button class="btn g" data-a="cm">Cancel</button></div>';
+            $('#modal').innerHTML='<div class="box"><b>'+esc(title)+'</b>'+files.map((f,i)=>'<div class="fold" tabindex="0" data-a="p" data-v="'+i+'"><b>'+esc(f.q)+'</b><div class="mu">'+esc(hostOf(f.url)+' \u00b7 '+f.name)+'</div></div>').join('')+'<button class="btn g" data-a="cm">Cancel</button></div>';
             $('#modal').hidden=false;
           }
+          function renderNav(){
+            $('#tabs').innerHTML='<span class="tab" tabindex="0" data-a="tab" data-v="home">Home</span>'+CATS.filter(c=>cfg.cats[c.id]).map(c=>'<span class="tab" tabindex="0" data-a="tab" data-v="'+c.id+'">'+c.short+'</span>').join('')+'<span class="tab" tabindex="0" data-a="tab" data-v="settings">&#9881;</span>';
+          }
+          function collect(){
+            CATS.forEach(c=>{const el=$('#u_'+c.id);if(!el)return;let u=el.value.trim();if(u){if(!/^https?:\/\//.test(u))u='http://'+u;if(!u.endsWith('/'))u+='/'}cfg.cats[c.id]=u});
+            sv('cfg',cfg);
+          }
           function act(a,v,el){
-            if(a=='tab'){$('#q').value='';if(v=='movie'||v=='series')show('list',v,true);else show(v,null,true)}
+            if(a=='tab'){$('#q').value='';if(v=='home'||v=='settings')show(v,null,true);else show('list',v,true)}
             else if(a=='open'){season=0;show('detail',+v)}
             else if(a=='more')show('list',v);
             else if(a=='playmovie'){const it=items[+v];play(it.files,it.title)}
@@ -409,19 +440,19 @@ jobs:
             else if(a=='season'){season=+v;render(true)}
             else if(a=='p'){$('#modal').hidden=true;go(pend[+v].url,ptitle)}
             else if(a=='cm')$('#modal').hidden=true;
-            else if(a=='browse'){const t=H[H.length-1];if(t.v=='browse')H[H.length-1]={v:'browse',a:v};else H.push({v:'browse',a:v});render();scrollTo(0,0)}
-            else if(a=='addlib'){if(!cfg.libs.includes(v))cfg.libs.push(v);sv('cfg',cfg);st('Added. Tap Rescan.',3000);show('settings',null,true)}
-            else if(a=='rmlib'){cfg.libs.splice(+v,1);sv('cfg',cfg);render()}
-            else if(a=='addroot'){cfg.libs=[cfg.root];sv('cfg',cfg);show('home',null,true);rescan()}
-            else if(a=='saveroot'){let r=$('#root').value.trim();if(!/^https?:\/\//.test(r))r='http://'+r;if(!r.endsWith('/'))r+='/';cfg.root=r;cfg.libs=[];sv('cfg',cfg);st('Saved. Add folders again.',3000);render()}
+            else if(a=='browsecat'){collect();const u=cfg.cats[v];if(!u){st('Type the address first',2500);return}H.push({v:'browse',a:u,cat:v});render();scrollTo(0,0)}
+            else if(a=='browse'){const t=H[H.length-1];H[H.length-1]={v:'browse',a:v,cat:t.cat};render();scrollTo(0,0)}
+            else if(a=='usecat'){const t=H[H.length-1];cfg.cats[t.cat]=v;sv('cfg',cfg);H.pop();render();st('Folder set',2000)}
+            else if(a=='save'){collect();renderNav();st('Saved',2000);render(true)}
+            else if(a=='savescan'){collect();renderNav();show('home',null,true);rescan()}
             else if(a=='rescan')rescan();
             else if(a=='clear'){items=[];M={};FULL={};FULLP={};sv('items',[]);sv('meta',{});render();st('Cache cleared',2000)}
           }
           document.addEventListener('click',e=>{const el=e.target.closest('[data-a]');if(el)act(el.dataset.a,el.dataset.v,el)});
           document.addEventListener('keydown',e=>{if(e.key=='Enter'){const el=document.activeElement;if(el&&el.dataset&&el.dataset.a)el.click()}});
           $('#q').addEventListener('input',function(){const v=this.value.trim();H=v?[{v:'search',a:v}]:[{v:'home'}];render()});
-          render();
-          if(!items.length&&cfg.libs.length)rescan();else if(items.length)enrich();
+          renderNav();render();
+          if(!items.length&&hasCats())rescan();else if(items.length)enrich();
           </script></body></html>
           EOF
       - uses: gradle/actions/setup-gradle@v4
